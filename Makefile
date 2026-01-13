@@ -34,13 +34,9 @@ banda: $(SRC_DIR)/banda.c $(HEADERS)
 	@echo "✓ Compilado: banda"
 
 # Compilar dispensadores (Día 2)
-dispensadores:
-	@if [ -f $(SRC_DIR)/dispensadores.c ]; then \
-		$(CC) $(CFLAGS) -o $(BIN_DIR)/$@ $(SRC_DIR)/dispensadores.c $(LDFLAGS); \
-		echo "✓ Compilado: dispensadores"; \
-	else \
-		echo "⚠ dispensadores.c no existe aún (Día 2)"; \
-	fi
+dispensadores: $(SRC_DIR)/dispensadores.c $(HEADERS)
+	$(CC) $(CFLAGS) -o $(BIN_DIR)/$@ $< $(LDFLAGS)
+	@echo "✓ Compilado: dispensadores"
 
 # Compilar celda de empaquetado (Día 3)
 celda:
@@ -52,13 +48,9 @@ celda:
 	fi
 
 # Compilar monitor (Día 2)
-monitor:
-	@if [ -f $(SRC_DIR)/monitor.c ]; then \
-		$(CC) $(CFLAGS) -o $(BIN_DIR)/$@ $(SRC_DIR)/monitor.c $(LDFLAGS); \
-		echo "✓ Compilado: monitor"; \
-	else \
-		echo "⚠ monitor.c no existe aún (Día 2)"; \
-	fi
+monitor: $(SRC_DIR)/monitor.c $(HEADERS)
+	$(CC) $(CFLAGS) -o $(BIN_DIR)/$@ $< $(LDFLAGS)
+	@echo "✓ Compilado: monitor"
 
 # Limpiar ejecutables
 clean:

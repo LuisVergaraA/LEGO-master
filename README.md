@@ -44,27 +44,43 @@ make all
 
 ## Ejecución
 
-### 1. Iniciar la banda transportadora
+### Sistema Completo (Día 2)
+
+#### Opción 1: Script Automático (Recomendado)
 ```bash
-./banda <tamaño_banda> <velocidad_ms>
-# Ejemplo: ./banda 50 100
+./scripts/test_dia2.sh
 ```
 
-### 2. Iniciar dispensadores
+#### Opción 2: Manual (3 terminales)
+
+**Terminal 1 - Banda transportadora:**
 ```bash
-./dispensadores <#dispensadores> <#sets> <pzA> <pzB> <pzC> <pzD> <intervalo_us>
-# Ejemplo: ./dispensadores 4 5 3 2 4 1 50000
+./bin/banda 50 100
+# Parámetros: <tamaño> <velocidad_ms>
 ```
 
-### 3. Iniciar celdas de empaquetado
+**Terminal 2 - Monitor (opcional pero recomendado):**
 ```bash
-./celda <id_celda> <posicion_en_banda> <pzA> <pzB> <pzC> <pzD>
-# Ejemplo: ./celda 1 15 3 2 4 1
+./bin/monitor
 ```
 
-### 4. Monitor (opcional)
+**Terminal 3 - Dispensadores:**
 ```bash
-./monitor
+./bin/dispensadores 4 3 3 2 4 1 50000
+# Parámetros: <#dispensadores> <#sets> <pzA> <pzB> <pzC> <pzD> <intervalo_us>
+```
+
+### Ejemplos de Configuración
+
+```bash
+# Configuración pequeña (rápida)
+./bin/dispensadores 2 2 2 2 2 2 30000
+
+# Configuración normal
+./bin/dispensadores 4 3 3 2 4 1 50000
+
+# Configuración grande
+./bin/dispensadores 6 10 4 3 5 2 100000
 ```
 
 ## Configuración del Sistema
@@ -81,15 +97,23 @@ make all
 - `3` - Pieza tipo C
 - `4` - Pieza tipo D
 
-## Día 1 - Implementado
-- ✅ Estructura del proyecto
-- ✅ common.h con definiciones compartidas
-- ✅ banda.c - Banda transportadora con arreglo circular
-- ✅ Makefile para compilación
-- ✅ Scripts de inicialización
+## Progreso del Proyecto
 
-## Próximos Pasos (Días 2-5)
-- Día 2: Dispensadores y movimiento
+### ✅ Día 1 - Completado
+- Estructura del proyecto
+- common.h con definiciones compartidas
+- banda.c - Banda transportadora con arreglo circular
+- Makefile para compilación
+- Scripts de inicialización
+
+### ✅ Día 2 - Completado
+- dispensadores.c - Sistema generador de piezas
+- monitor.c - Visualización en tiempo real con colores
+- Estadísticas del sistema
+- Integración completa banda ↔ dispensadores
+- Script de prueba automática
+
+### ⏳ Próximos Pasos
 - Día 3: Celdas con brazos robóticos
 - Día 4: Balance y validación
 - Día 5: Robustez y celdas dinámicas
@@ -111,4 +135,4 @@ ipcs -s | grep 2223 | awk '{print $2}' | xargs -n1 ipcrm -s
 - System V IPC support
 
 ## Autor
-Proyecto de Sistemas Operativos - 2T 2025
+Luis Vergara Arellano
