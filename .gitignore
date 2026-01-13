@@ -1,0 +1,25 @@
+# Ejecutables
+bin/
+*.o
+*.out
+*.exe
+
+# Logs
+logs/
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Backup
+*~
+*.bak
+*.backup
+
+# Temporal
+tmp/
+temp/
