@@ -42,15 +42,23 @@
 
 // ============= ESTRUCTURAS =============
 
+// Estructura para una posición de banda (múltiples piezas)
+#define MAX_PIEZAS_POR_POSICION 10
+
+typedef struct {
+    int piezas[MAX_PIEZAS_POR_POSICION];  // Array de piezas en esta posición
+    int count;                             // Cantidad actual de piezas
+} PosicionBanda;
+
 // Estructura de la banda transportadora en memoria compartida
 typedef struct {
-    int tamanio;                // N pasos de la banda
-    int velocidad_ms;           // Velocidad en milisegundos por paso
-    int activa;                 // 1 = operando, 0 = detenida, -1 = fin
-    int posiciones[MAX_BANDA];  // Arreglo circular de piezas
-    int cabeza;                 // Índice actual de inserción (dispensadores)
-    int num_celdas;             // Número de celdas activas
-    int pos_celdas[MAX_CELDAS]; // Posiciones de las celdas en la banda
+    int tamanio;                      // N pasos de la banda
+    int velocidad_ms;                 // Velocidad en milisegundos por paso
+    int activa;                       // 1 = operando, 0 = detenida, -1 = fin
+    PosicionBanda posiciones[MAX_BANDA];  // Arreglo circular de posiciones
+    int cabeza;                       // Índice actual de inserción (dispensadores)
+    int num_celdas;                   // Número de celdas activas
+    int pos_celdas[MAX_CELDAS];       // Posiciones de las celdas en la banda
 } BandaTransportadora;
 
 // Configuración de un SET
@@ -150,6 +158,49 @@ static inline void print_timestamp(const char* prefix) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     printf("[%02d:%02d:%02d] %s", t->tm_hour, t->tm_min, t->tm_sec, prefix);
+}
+
+// Agregar pieza a una posición
+static inline int agregar_pieza_a_posicion(PosicionBanda* pos, int tipo) {
+    if (pos->count >= MAX_PIEZAS_POR_POSICION) {
+        return -1;  // Posición llena
+    }
+    pos->piezas[pos->count] = tipo;
+    pos->count++;
+    return 0;
+}
+
+// Remover pieza de una posición (por tipo)
+static inline int remover_pieza_de_posicion(PosicionBanda* pos, int tipo) {
+    for (int i = 0; i < pos->count; i++) {
+        if (pos->piezas[i] == tipo) {
+            // Shift array hacia la izquierda
+            for (int j = i; j < pos->count - 1; j++) {
+                pos->piezas[j] = pos->piezas[j + 1];
+            }
+            pos->count--;
+            return 0;
+        }
+    }
+    return -1;  // Pieza no encontrada
+}
+
+// Buscar si existe un tipo de pieza en una posición
+static inline int buscar_pieza_en_posicion(PosicionBanda* pos, int tipo) {
+    for (int i = 0; i < pos->count; i++) {
+        if (pos->piezas[i] == tipo) {
+            return i;  // Índice donde está la pieza
+        }
+    }
+    return -1;  // No encontrada
+}
+
+// Limpiar una posición
+static inline void limpiar_posicion(PosicionBanda* pos) {
+    pos->count = 0;
+    for (int i = 0; i < MAX_PIEZAS_POR_POSICION; i++) {
+        pos->piezas[i] = VACIO;
+    }
 }
 
 #endif // COMMON_H

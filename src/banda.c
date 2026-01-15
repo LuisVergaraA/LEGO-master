@@ -63,7 +63,7 @@ int inicializar_banda(int tamanio, int velocidad_ms) {
     
     // Limpiar todas las posiciones
     for (int i = 0; i < tamanio; i++) {
-        banda->posiciones[i] = VACIO;
+        limpiar_posicion(&banda->posiciones[i]);
     }
     
     for (int i = 0; i < MAX_CELDAS; i++) {
@@ -93,26 +93,30 @@ void mover_banda() {
     // Proteger acceso a la banda
     sem_wait_op(semid_banda, 0);
     
-    // Guardar la pieza que está al final (caerá al tacho)
-    int pieza_final = banda->posiciones[banda->tamanio - 1];
+    // Guardar las piezas que están al final (caerán al tacho)
+    PosicionBanda pieza_final = banda->posiciones[banda->tamanio - 1];
     
-    // Desplazar todas las piezas un paso adelante
+    // Desplazar todas las posiciones un paso adelante
     for (int i = banda->tamanio - 1; i > 0; i--) {
         banda->posiciones[i] = banda->posiciones[i - 1];
     }
     
     // La posición 0 queda vacía (los dispensadores la llenarán)
-    banda->posiciones[0] = VACIO;
+    limpiar_posicion(&banda->posiciones[0]);
     
     // Actualizar cabeza circular
     banda->cabeza = 0;
     
     sem_signal_op(semid_banda, 0);
     
-    // Reportar si una pieza cayó al tacho
-    if (pieza_final != VACIO && pieza_final != FIN_BANDA) {
-        printf("  [TACHO] Pieza tipo %s cayó al final de la banda\n", 
-               nombre_pieza(pieza_final));
+    // Reportar si piezas cayeron al tacho
+    if (pieza_final.count > 0) {
+        for (int i = 0; i < pieza_final.count; i++) {
+            if (pieza_final.piezas[i] != VACIO) {
+                printf("  [TACHO] Pieza tipo %s cayó al final de la banda\n", 
+                       nombre_pieza(pieza_final.piezas[i]));
+            }
+        }
     }
 }
 
@@ -127,10 +131,18 @@ void mostrar_estado() {
     // Mostrar primeras 20 posiciones
     printf("Posiciones [0-19]: ");
     for (int i = 0; i < 20 && i < banda->tamanio; i++) {
-        if (banda->posiciones[i] == VACIO) {
+        if (banda->posiciones[i].count == 0) {
             printf("· ");
+        } else if (banda->posiciones[i].count == 1) {
+            printf("%s ", nombre_pieza(banda->posiciones[i].piezas[0]));
         } else {
-            printf("%s ", nombre_pieza(banda->posiciones[i]));
+            // Mostrar múltiples piezas como [ABC]
+            printf("[");
+            for (int j = 0; j < banda->posiciones[i].count && j < 3; j++) {
+                printf("%s", nombre_pieza(banda->posiciones[i].piezas[j]));
+            }
+            if (banda->posiciones[i].count > 3) printf("+");
+            printf("] ");
         }
     }
     if (banda->tamanio > 20) printf("...");

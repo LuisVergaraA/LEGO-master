@@ -140,13 +140,22 @@ void visualizar_banda() {
     // Piezas en la banda
     printf("║      ");
     for (int i = 0; i < mostrar; i++) {
-        int pieza = banda->posiciones[i];
-        const char* color = get_color(pieza);
+        PosicionBanda* pos = &banda->posiciones[i];
         
-        if (pieza == VACIO) {
+        if (pos->count == 0) {
             printf("· ");
+        } else if (pos->count == 1) {
+            const char* color = get_color(pos->piezas[0]);
+            printf("%s%s%s ", color, nombre_pieza(pos->piezas[0]), COLOR_RESET);
         } else {
-            printf("%s%s%s ", color, nombre_pieza(pieza), COLOR_RESET);
+            // Mostrar múltiples piezas entre corchetes
+            printf("[");
+            for (int j = 0; j < pos->count && j < 2; j++) {
+                const char* color = get_color(pos->piezas[j]);
+                printf("%s%s%s", color, nombre_pieza(pos->piezas[j]), COLOR_RESET);
+            }
+            if (pos->count > 2) printf("+");
+            printf("]");
         }
     }
     if (banda->tamanio > max_mostrar) {

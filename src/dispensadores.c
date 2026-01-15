@@ -117,17 +117,21 @@ int insertar_pieza_en_banda(int tipo_pieza) {
     // Proteger acceso a la banda
     sem_wait_op(semid_banda, 0);
     
-    // Insertar en la posición 0 (donde entran las piezas)
-    banda->posiciones[0] = tipo_pieza;
+    // Agregar a la posición 0 si hay espacio
+    int resultado = agregar_pieza_a_posicion(&banda->posiciones[0], tipo_pieza);
     
     sem_signal_op(semid_banda, 0);
     
-    // Actualizar estadísticas
-    sem_wait_op(semid_stats, 0);
-    stats->total_piezas_dispensadas++;
-    sem_signal_op(semid_stats, 0);
-    
-    return 1;
+    if (resultado == 0) {
+        // Actualizar estadísticas
+        sem_wait_op(semid_stats, 0);
+        stats->total_piezas_dispensadas++;
+        sem_signal_op(semid_stats, 0);
+        return 1;
+    } else {
+        // Posición llena, no se pudo insertar
+        return 0;
+    }
 }
 
 // Dispensar piezas en un ciclo
