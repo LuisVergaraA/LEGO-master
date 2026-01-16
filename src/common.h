@@ -40,6 +40,9 @@
 #define MAX_DELTA_T1 2000000    // 2 segundos máximo para cambio de caja
 #define DELTA_T2 100000         // 100ms suspensión de brazo sobrecargado
 
+// Balance de brazos
+#define Y_TIPOS_PIEZAS 4        // Cada Y=4 piezas totales, revisar balance
+
 // ============= ESTRUCTURAS =============
 
 // Estructura para una posición de banda (múltiples piezas)

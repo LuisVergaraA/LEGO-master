@@ -23,6 +23,11 @@ typedef struct {
     sem_t sem_retirar;                // Solo 2 retiran (valor = 2)
     pthread_mutex_t mutex_brazos;     // Proteger array de brazos
     
+    // Balance de brazos (Día 4)
+    int piezas_totales_procesadas;   // Contador global para balance
+    int ultimo_checkpoint;            // Último checkpoint de balance
+    pthread_mutex_t mutex_balance;    // Proteger variables de balance
+    
     // Estadísticas
     int cajas_completadas;
     int cajas_fallidas;
@@ -188,6 +193,50 @@ int caja_completa() {
     return 1;
 }
 
+// Determinar brazo con más piezas procesadas (para balance)
+int obtener_brazo_mas_ocupado() {
+    int max_piezas = -1;
+    int brazo_max = -1;
+    
+    pthread_mutex_lock(&celda.mutex_brazos);
+    
+    for (int i = 0; i < BRAZOS_POR_CELDA; i++) {
+        if (celda.brazos[i].piezas_procesadas > max_piezas) {
+            max_piezas = celda.brazos[i].piezas_procesadas;
+            brazo_max = i;
+        }
+    }
+    
+    pthread_mutex_unlock(&celda.mutex_brazos);
+    
+    return brazo_max;
+}
+
+// Verificar si debe aplicarse balance (cada Y piezas)
+int debe_balancear(int mi_id) {
+    pthread_mutex_lock(&celda.mutex_balance);
+    
+    int total = celda.piezas_totales_procesadas;
+    int checkpoint = celda.ultimo_checkpoint;
+    
+    // Cada Y_TIPOS_PIEZAS piezas procesadas
+    if (total - checkpoint >= Y_TIPOS_PIEZAS) {
+        celda.ultimo_checkpoint = total;
+        pthread_mutex_unlock(&celda.mutex_balance);
+        
+        // Determinar si este brazo es el más ocupado
+        int brazo_max = obtener_brazo_mas_ocupado();
+        
+        if (brazo_max == mi_id) {
+            return 1;  // Este brazo debe suspenderse
+        }
+    } else {
+        pthread_mutex_unlock(&celda.mutex_balance);
+    }
+    
+    return 0;  // No suspender
+}
+
 // Validar caja con operador humano
 void validar_caja() {
     printf("[CELDA %d] 📦 Caja completa, notificando operador...\n", celda.id_celda);
@@ -347,7 +396,12 @@ void inicializar_celda(int id, int posicion, int pzA, int pzB, int pzC, int pzD)
     // Inicializar mutex y semáforos
     pthread_mutex_init(&celda.mutex_caja, NULL);
     pthread_mutex_init(&celda.mutex_brazos, NULL);
+    pthread_mutex_init(&celda.mutex_balance, NULL);
     sem_init(&celda.sem_retirar, 0, 2);  // Máximo 2 brazos retirando
+    
+    // Inicializar balance
+    celda.piezas_totales_procesadas = 0;
+    celda.ultimo_checkpoint = 0;
 }
 
 // Ejecutar celda
@@ -392,19 +446,71 @@ void ejecutar_celda() {
     
     // Mostrar resumen
     printf("\n");
-    printf("═══════════════════════════════════════════════════════════\n");
-    printf("  RESUMEN CELDA %d\n", celda.id_celda);
-    printf("═══════════════════════════════════════════════════════════\n");
-    printf("Cajas completadas OK: %d\n", celda.cajas_completadas);
-    printf("Cajas con errores: %d\n", celda.cajas_fallidas);
-    printf("Total piezas procesadas: %d\n", celda.total_piezas_procesadas);
+    printf("╔═══════════════════════════════════════════════════════════╗\n");
+    printf("║          RESUMEN DETALLADO CELDA %d                        ║\n", celda.id_celda);
+    printf("╚═══════════════════════════════════════════════════════════╝\n");
     printf("\n");
-    printf("Estadísticas por brazo:\n");
-    for (int i = 0; i < BRAZOS_POR_CELDA; i++) {
-        printf("  Brazo %d: %d piezas procesadas\n", 
-               i, celda.brazos[i].piezas_procesadas);
+    
+    // Producción
+    printf("📦 PRODUCCIÓN:\n");
+    printf("   Cajas completadas OK: %d\n", celda.cajas_completadas);
+    printf("   Cajas con errores: %d\n", celda.cajas_fallidas);
+    printf("   Total piezas procesadas: %d\n", celda.total_piezas_procesadas);
+    
+    if (celda.cajas_completadas + celda.cajas_fallidas > 0) {
+        float tasa_exito = (float)celda.cajas_completadas / 
+                          (celda.cajas_completadas + celda.cajas_fallidas) * 100;
+        printf("   Tasa de éxito: %.1f%%\n", tasa_exito);
     }
-    printf("═══════════════════════════════════════════════════════════\n");
+    printf("\n");
+    
+    // Estadísticas por brazo
+    printf("🤖 ESTADÍSTICAS POR BRAZO:\n");
+    int total_brazo = 0;
+    int min_piezas = 999999;
+    int max_piezas = 0;
+    
+    for (int i = 0; i < BRAZOS_POR_CELDA; i++) {
+        int piezas = celda.brazos[i].piezas_procesadas;
+        printf("   Brazo %d: %d piezas procesadas", i, piezas);
+        
+        total_brazo += piezas;
+        if (piezas < min_piezas) min_piezas = piezas;
+        if (piezas > max_piezas) max_piezas = piezas;
+        
+        // Mostrar porcentaje
+        if (celda.total_piezas_procesadas > 0) {
+            float porcentaje = (float)piezas / celda.total_piezas_procesadas * 100;
+            printf(" (%.1f%%)", porcentaje);
+        }
+        printf("\n");
+    }
+    
+    printf("\n");
+    printf("⚖️  BALANCE DE CARGA:\n");
+    if (BRAZOS_POR_CELDA > 0) {
+        float promedio = (float)total_brazo / BRAZOS_POR_CELDA;
+        float desbalance = max_piezas - min_piezas;
+        float desbalance_pct = (promedio > 0) ? (desbalance / promedio * 100) : 0;
+        
+        printf("   Promedio por brazo: %.1f piezas\n", promedio);
+        printf("   Mínimo: %d | Máximo: %d | Diferencia: %.0f\n", 
+               min_piezas, max_piezas, desbalance);
+        printf("   Desbalance: %.1f%%", desbalance_pct);
+        
+        if (desbalance_pct < 10) {
+            printf(" ✅ (Excelente)\n");
+        } else if (desbalance_pct < 25) {
+            printf(" ✓ (Bueno)\n");
+        } else if (desbalance_pct < 50) {
+            printf(" ⚠ (Regular)\n");
+        } else {
+            printf(" ❌ (Malo)\n");
+        }
+    }
+    
+    printf("\n");
+    printf("╚═══════════════════════════════════════════════════════════╝\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -474,6 +580,7 @@ int main(int argc, char *argv[]) {
     // Cleanup
     pthread_mutex_destroy(&celda.mutex_caja);
     pthread_mutex_destroy(&celda.mutex_brazos);
+    pthread_mutex_destroy(&celda.mutex_balance);
     sem_destroy(&celda.sem_retirar);
     
     if (banda != NULL) shmdt(banda);
