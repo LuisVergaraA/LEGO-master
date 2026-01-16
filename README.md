@@ -44,43 +44,32 @@ make all
 
 ## Ejecución
 
-### Sistema Completo (Día 2)
-
 #### Opción 1: Script Automático (Recomendado)
 ```bash
-./scripts/test_dia2.sh
+./scripts/demo_profesor.sh
 ```
 
-#### Opción 2: Manual (3 terminales)
+#### Opción 2: Manual (4 terminales)
 
 **Terminal 1 - Banda transportadora:**
 ```bash
-./bin/banda 50 100
+./bin/banda 60 200 &
+sleep 2
 # Parámetros: <tamaño> <velocidad_ms>
 ```
 
-**Terminal 2 - Monitor (opcional pero recomendado):**
+**Terminal 2: Celda 1:**
 ```bash
-./bin/monitor
+./bin/celda 1 15 3 2 4 1
 ```
 
-**Terminal 3 - Dispensadores:**
+**Terminal 3: Celda 2:**
+./bin/celda 2 40 3 2 4 1
+
+**Terminal 4: Dispensadores:**
 ```bash
-./bin/dispensadores 4 3 3 2 4 1 50000
+./bin/dispensadores 6 5 3 2 4 1 100000
 # Parámetros: <#dispensadores> <#sets> <pzA> <pzB> <pzC> <pzD> <intervalo_us>
-```
-
-### Ejemplos de Configuración
-
-```bash
-# Configuración pequeña (rápida)
-./bin/dispensadores 2 2 2 2 2 2 30000
-
-# Configuración normal
-./bin/dispensadores 4 3 3 2 4 1 50000
-
-# Configuración grande
-./bin/dispensadores 6 10 4 3 5 2 100000
 ```
 
 ## Configuración del Sistema
@@ -99,24 +88,7 @@ make all
 
 ## Progreso del Proyecto
 
-### ✅ Día 1 - Completado
-- Estructura del proyecto
-- common.h con definiciones compartidas
-- banda.c - Banda transportadora con arreglo circular
-- Makefile para compilación
-- Scripts de inicialización
-
-### ✅ Día 2 - Completado
-- dispensadores.c - Sistema generador de piezas
-- monitor.c - Visualización en tiempo real con colores
-- Estadísticas del sistema
-- Integración completa banda ↔ dispensadores
-- Script de prueba automática
-
-### ⏳ Próximos Pasos
-- Día 3: Celdas con brazos robóticos
-- Día 4: Balance y validación
-- Día 5: Robustez y celdas dinámicas
+### 100% listo 
 
 ## Limpieza del Sistema
 

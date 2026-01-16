@@ -46,15 +46,44 @@ typedef struct {
 void cleanup_handler(int sig) {
     (void)sig;
     signal(SIGINT, SIG_IGN);
+    signal(SIGTERM, SIG_IGN);
     
     printf("\n");
     print_timestamp("Deteniendo celda...\n");
     
+    // Marcar celda como inactiva
     celda.celda_activa = 0;
     
-    // Cleanup
-    if (banda != NULL) shmdt(banda);
-    if (stats != NULL) shmdt(stats);
+    // Esperar a que los brazos terminen
+    printf("[CELDA %d] Esperando finalización de brazos...\n", celda.id_celda);
+    sleep(1);
+    
+    // Desregistrar celda de la banda
+    if (banda != NULL) {
+        sem_wait_op(semid_banda, 0);
+        
+        // Buscar y remover de pos_celdas[]
+        for (int i = 0; i < banda->num_celdas; i++) {
+            if (banda->pos_celdas[i] == celda.posicion_banda) {
+                // Shift array hacia la izquierda
+                for (int j = i; j < banda->num_celdas - 1; j++) {
+                    banda->pos_celdas[j] = banda->pos_celdas[j + 1];
+                }
+                banda->pos_celdas[banda->num_celdas - 1] = -1;
+                banda->num_celdas--;
+                printf("[CELDA %d] Desregistrada de la banda\n", celda.id_celda);
+                break;
+            }
+        }
+        
+        sem_signal_op(semid_banda, 0);
+        shmdt(banda);
+    }
+    
+    // Cleanup de stats
+    if (stats != NULL) {
+        shmdt(stats);
+    }
     
     print_timestamp("Celda finalizada.\n");
     exit(0);
@@ -522,10 +551,11 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Parámetros:\n");
         fprintf(stderr, "  id_celda: ID único de la celda (1-10)\n");
         fprintf(stderr, "  posicion: Posición en la banda donde captura (0-%d)\n", MAX_BANDA-1);
-        fprintf(stderr, "  pzA, pzB, pzC, pzD: Piezas requeridas por set\n");
+        fprintf(stderr, "  pzA, pzB, pzC, pzD: Piezas requeridas por set (1-20)\n");
         exit(EXIT_FAILURE);
     }
     
+    // Parsear argumentos con validación
     int id = atoi(argv[1]);
     int posicion = atoi(argv[2]);
     int pzA = atoi(argv[3]);
@@ -533,46 +563,112 @@ int main(int argc, char *argv[]) {
     int pzC = atoi(argv[5]);
     int pzD = atoi(argv[6]);
     
-    // Validar valores
-    if (id < 1 || id > 10) {
-        fprintf(stderr, "Error: id_celda debe estar entre 1 y 10\n");
+    // Validar ID de celda
+    if (id < 1 || id > MAX_CELDAS) {
+        fprintf(stderr, "❌ Error: id_celda debe estar entre 1 y %d (recibido: %d)\n", 
+                MAX_CELDAS, id);
         exit(EXIT_FAILURE);
     }
     
+    // Validar posición en banda
     if (posicion < 0 || posicion >= MAX_BANDA) {
-        fprintf(stderr, "Error: posicion debe estar entre 0 y %d\n", MAX_BANDA-1);
+        fprintf(stderr, "❌ Error: posicion debe estar entre 0 y %d (recibido: %d)\n", 
+                MAX_BANDA-1, posicion);
         exit(EXIT_FAILURE);
     }
     
-    if (pzA < 1 || pzB < 1 || pzC < 1 || pzD < 1) {
-        fprintf(stderr, "Error: Todas las piezas deben ser >= 1\n");
+    // Validar que la posición sea razonable (no muy al final)
+    if (posicion > MAX_BANDA - 5) {
+        fprintf(stderr, "⚠️  Advertencia: posición %d muy cerca del final de la banda\n", posicion);
+        fprintf(stderr, "   Las piezas podrían caer al tacho antes de ser capturadas.\n");
+        fprintf(stderr, "   Recomendado: posición < %d\n", MAX_BANDA - 5);
+    }
+    
+    // Validar piezas por set
+    if (pzA < 1 || pzA > 20) {
+        fprintf(stderr, "❌ Error: piezas tipo A deben estar entre 1 y 20 (recibido: %d)\n", pzA);
         exit(EXIT_FAILURE);
+    }
+    if (pzB < 1 || pzB > 20) {
+        fprintf(stderr, "❌ Error: piezas tipo B deben estar entre 1 y 20 (recibido: %d)\n", pzB);
+        exit(EXIT_FAILURE);
+    }
+    if (pzC < 1 || pzC > 20) {
+        fprintf(stderr, "❌ Error: piezas tipo C deben estar entre 1 y 20 (recibido: %d)\n", pzC);
+        exit(EXIT_FAILURE);
+    }
+    if (pzD < 1 || pzD > 20) {
+        fprintf(stderr, "❌ Error: piezas tipo D deben estar entre 1 y 20 (recibido: %d)\n", pzD);
+        exit(EXIT_FAILURE);
+    }
+    
+    // Validar que el total no sea excesivo
+    int total_por_set = pzA + pzB + pzC + pzD;
+    if (total_por_set > 50) {
+        fprintf(stderr, "⚠️  Advertencia: set muy grande (%d piezas)\n", total_por_set);
+        fprintf(stderr, "   Esto puede causar tiempos de espera largos.\n");
     }
     
     // Configurar señales
     signal(SIGINT, cleanup_handler);
     signal(SIGTERM, cleanup_handler);
+    signal(SIGHUP, cleanup_handler);  // También manejar SIGHUP
     
     // Inicializar generador aleatorio
     srand(time(NULL) + id);
     
-    // Conectar a memoria compartida
+    // Conectar a memoria compartida con validación
+    printf("[CELDA %d] Intentando conectar al sistema...\n", id);
+    
     if (conectar_memoria_compartida() < 0) {
-        fprintf(stderr, "Error: No se pudo conectar al sistema\n");
-        fprintf(stderr, "Asegúrate de que banda y dispensadores estén ejecutándose.\n");
+        fprintf(stderr, "❌ Error: No se pudo conectar al sistema\n");
+        fprintf(stderr, "   Posibles causas:\n");
+        fprintf(stderr, "   1. La banda no está ejecutándose\n");
+        fprintf(stderr, "   2. Los dispensadores no han iniciado\n");
+        fprintf(stderr, "   3. Recursos IPC no disponibles\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "   Solución:\n");
+        fprintf(stderr, "   1. Iniciar banda: ./bin/banda <tamaño> <velocidad>\n");
+        fprintf(stderr, "   2. Iniciar dispensadores: ./bin/dispensadores ...\n");
+        fprintf(stderr, "   3. Verificar IPC: ipcs -a\n");
         exit(EXIT_FAILURE);
     }
+    
+    printf("[CELDA %d] ✓ Conectado al sistema\n", id);
+    
+    // Verificar que la banda esté activa
+    if (banda->activa <= 0) {
+        fprintf(stderr, "⚠️  Advertencia: La banda no está activa (estado: %d)\n", banda->activa);
+        fprintf(stderr, "   La celda puede no capturar piezas correctamente.\n");
+    }
+    
+    // Verificar que la posición no esté ocupada por otra celda
+    sem_wait_op(semid_banda, 0);
+    for (int i = 0; i < banda->num_celdas; i++) {
+        if (banda->pos_celdas[i] == posicion) {
+            sem_signal_op(semid_banda, 0);
+            fprintf(stderr, "❌ Error: Ya existe una celda en posición %d\n", posicion);
+            fprintf(stderr, "   Elige una posición diferente.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    sem_signal_op(semid_banda, 0);
     
     // Inicializar celda
     inicializar_celda(id, posicion, pzA, pzB, pzC, pzD);
     
-    // Registrar en la banda
+    // Registrar en la banda con validación
     if (registrar_celda() < 0) {
-        fprintf(stderr, "Error: No se pudo registrar la celda\n");
+        fprintf(stderr, "❌ Error: No se pudo registrar la celda\n");
+        fprintf(stderr, "   Posibles causas:\n");
+        fprintf(stderr, "   1. Máximo de celdas alcanzado (%d)\n", MAX_CELDAS);
+        fprintf(stderr, "   2. Error de sincronización\n");
         exit(EXIT_FAILURE);
     }
     
     print_timestamp("Celda registrada en el sistema\n");
+    printf("[CELDA %d] Posición: %d | SET: A=%d B=%d C=%d D=%d\n", 
+           id, posicion, pzA, pzB, pzC, pzD);
     
     // Ejecutar celda
     ejecutar_celda();
