@@ -137,12 +137,23 @@ void visualizar_banda() {
     }
     printf("%*s", ancho_display - 8 - (mostrar * 2), "║\n");
     
-    // Piezas en la banda
+    // Piezas en la banda con indicadores de celdas
     printf("║      ");
     for (int i = 0; i < mostrar; i++) {
         PosicionBanda* pos = &banda->posiciones[i];
         
-        if (pos->count == 0) {
+        // Verificar si hay una celda en esta posición
+        int hay_celda = 0;
+        for (int c = 0; c < banda->num_celdas; c++) {
+            if (banda->pos_celdas[c] == i) {
+                hay_celda = 1;
+                break;
+            }
+        }
+        
+        if (hay_celda) {
+            printf("%s▼%s", COLOR_CYAN, COLOR_RESET);  // Indicador de celda
+        } else if (pos->count == 0) {
             printf("· ");
         } else if (pos->count == 1) {
             const char* color = get_color(pos->piezas[0]);
