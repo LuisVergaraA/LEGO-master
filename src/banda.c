@@ -5,33 +5,34 @@ BandaTransportadora *banda = NULL;
 int shmid_banda = -1;
 int semid_banda = -1;
 
+// Variable para estadísticas de piezas al tacho
+EstadisticasGlobales *stats = NULL;
+int shmid_stats = -1;
+int semid_stats = -1;
+
 // Manejador de señal para limpieza
 void cleanup_handler(int sig) {
-    (void)sig; // Evitar warning de parámetro no usado
+    (void)sig;
     signal(SIGINT, SIG_IGN);
     printf("\n");
     print_timestamp("Deteniendo banda transportadora...\n");
     
     if (banda != NULL) {
-        banda->activa = -1; // Señal de terminación
-        
-        // Detach de memoria compartida
-        if (shmdt(banda) == -1) {
-            perror("shmdt banda");
-        }
+        banda->activa = -1;
+        shmdt(banda);
+    }
+    
+    if (stats != NULL) {
+        shmdt(stats);
     }
     
     // Eliminar recursos IPC
     if (shmid_banda != -1) {
-        if (shmctl(shmid_banda, IPC_RMID, NULL) == -1) {
-            perror("shmctl IPC_RMID banda");
-        }
+        shmctl(shmid_banda, IPC_RMID, NULL);
     }
     
     if (semid_banda != -1) {
-        if (semctl(semid_banda, 0, IPC_RMID) == -1) {
-            perror("semctl IPC_RMID");
-        }
+        semctl(semid_banda, 0, IPC_RMID);
     }
     
     print_timestamp("Banda finalizada. Recursos liberados.\n");
@@ -47,7 +48,6 @@ int inicializar_banda(int tamanio, int velocidad_ms) {
         return -1;
     }
     
-    // Attach a memoria compartida
     banda = (BandaTransportadora *)shmat(shmid_banda, NULL, 0);
     if (banda == (BandaTransportadora *)-1) {
         perror("shmat banda");
@@ -71,8 +71,6 @@ int inicializar_banda(int tamanio, int velocidad_ms) {
     }
     
     // Crear conjunto de semáforos
-    // sem[0] = mutex para acceso a la banda
-    // sem[1..MAX_BANDA] = mutex por cada posición de la banda
     semid_banda = semget(KEY_SEM_BANDA, MAX_BANDA + 1, IPC_CREAT | 0666);
     if (semid_banda < 0) {
         perror("semget banda");
@@ -88,12 +86,27 @@ int inicializar_banda(int tamanio, int velocidad_ms) {
     return 0;
 }
 
-// Mover la banda un paso (shift circular)
+// Conectar a estadísticas globales
+void conectar_estadisticas() {
+    shmid_stats = shmget(KEY_STATS, sizeof(EstadisticasGlobales), 0666);
+    if (shmid_stats >= 0) {
+        stats = (EstadisticasGlobales *)shmat(shmid_stats, NULL, 0);
+        if (stats == (EstadisticasGlobales *)-1) {
+            stats = NULL;
+        }
+        
+        semid_stats = semget(KEY_SEM_STATS, 0, 0666);
+        if (semid_stats < 0) {
+            stats = NULL;
+        }
+    }
+}
+
+// Mover la banda un paso (shift circular REAL)
 void mover_banda() {
-    // Proteger acceso a la banda
     sem_wait_op(semid_banda, 0);
     
-    // Guardar las piezas que están al final (caerán al tacho)
+    // Guardar la última posición (en vez de tirarla al tacho)
     PosicionBanda pieza_final = banda->posiciones[banda->tamanio - 1];
     
     // Desplazar todas las posiciones un paso adelante
@@ -101,32 +114,42 @@ void mover_banda() {
         banda->posiciones[i] = banda->posiciones[i - 1];
     }
     
-    // La posición 0 queda vacía (los dispensadores la llenarán)
-    limpiar_posicion(&banda->posiciones[0]);
-    
-    // Actualizar cabeza circular
-    banda->cabeza = 0;
-    
-    sem_signal_op(semid_banda, 0);
-    
-    // Reportar si piezas cayeron al tacho
-    if (pieza_final.count > 0) {
-        for (int i = 0; i < pieza_final.count; i++) {
-            if (pieza_final.piezas[i] != VACIO) {
-                printf("  [TACHO] Pieza tipo %s cayó al final de la banda\n", 
-                       nombre_pieza(pieza_final.piezas[i]));
+    // BANDA CIRCULAR: Las piezas del final regresan a la posición 0
+    // Pero SOLO si no hay nuevas piezas siendo dispensadas
+    if (banda->posiciones[0].count == 0) {
+        // Posición 0 vacía, podemos poner las piezas que venían del final
+        banda->posiciones[0] = pieza_final;
+    } else {
+        // Ya hay piezas nuevas en pos 0, las del final van al tacho
+        if (pieza_final.count > 0 && stats != NULL) {
+            sem_wait_op(semid_stats, 0);
+            for (int i = 0; i < pieza_final.count; i++) {
+                int tipo = pieza_final.piezas[i];
+                if (tipo != VACIO) {
+                    int indice = tipo_a_indice(tipo);
+                    if (indice >= 0 && indice < MAX_TIPOS_PIEZAS) {
+                        stats->piezas_sobrantes[indice]++;
+                        printf("  [TACHO] Pieza tipo %s (banda saturada)\n", 
+                               nombre_pieza(tipo));
+                    }
+                }
             }
+            sem_signal_op(semid_stats, 0);
         }
     }
+    
+    banda->cabeza = 0;
+    sem_signal_op(semid_banda, 0);
 }
 
-// Mostrar estado de la banda (versión simplificada)
+// Mostrar estado de la banda
 void mostrar_estado() {
     printf("\n═══════════════════════════════════════════════════════════\n");
     print_timestamp("Estado de la Banda Transportadora\n");
     printf("═══════════════════════════════════════════════════════════\n");
-    printf("Tamaño: %d pasos | Velocidad: %d ms/paso\n", 
-           banda->tamanio, banda->velocidad_ms);
+    printf("Tamaño: %d pasos | Velocidad: %d ms/paso | Estado: %s\n", 
+           banda->tamanio, banda->velocidad_ms,
+           banda->activa > 0 ? "ACTIVA" : "DETENIDA");
     
     // Mostrar primeras 20 posiciones
     printf("Posiciones [0-19]: ");
@@ -136,7 +159,6 @@ void mostrar_estado() {
         } else if (banda->posiciones[i].count == 1) {
             printf("%s ", nombre_pieza(banda->posiciones[i].piezas[0]));
         } else {
-            // Mostrar múltiples piezas como [ABC]
             printf("[");
             for (int j = 0; j < banda->posiciones[i].count && j < 3; j++) {
                 printf("%s", nombre_pieza(banda->posiciones[i].piezas[j]));
@@ -149,21 +171,20 @@ void mostrar_estado() {
     printf("\n");
     
     // Mostrar celdas activas
-    printf("Celdas activas: %d\n", banda->num_celdas);
+    printf("Celdas activas: %d", banda->num_celdas);
     if (banda->num_celdas > 0) {
-        printf("Posiciones: ");
+        printf(" en posiciones: ");
         for (int i = 0; i < banda->num_celdas; i++) {
             printf("[%d] ", banda->pos_celdas[i]);
         }
-        printf("\n");
     }
-    printf("═══════════════════════════════════════════════════════════\n\n");
+    printf("\n═══════════════════════════════════════════════════════════\n\n");
 }
 
 // Loop principal de la banda
 void ejecutar_banda() {
     int ciclos = 0;
-    int mostrar_cada = 10; // Mostrar estado cada 10 ciclos
+    int mostrar_cada = 10;
     
     print_timestamp("Banda transportadora iniciada\n");
     printf("Tamaño: %d pasos, Velocidad: %d ms\n", 
@@ -171,16 +192,15 @@ void ejecutar_banda() {
     printf("Esperando dispensadores y celdas...\n");
     printf("Presione Ctrl+C para detener.\n\n");
     
+    // Intentar conectar a estadísticas (pueden no existir aún)
+    sleep(1);
+    conectar_estadisticas();
+    
     while (banda->activa > 0) {
-        // Esperar según velocidad configurada
         usleep(banda->velocidad_ms * 1000);
-        
-        // Mover la banda un paso
         mover_banda();
-        
         ciclos++;
         
-        // Mostrar estado periódicamente
         if (ciclos % mostrar_cada == 0) {
             mostrar_estado();
         }
@@ -190,7 +210,6 @@ void ejecutar_banda() {
 }
 
 int main(int argc, char *argv[]) {
-    // Validar argumentos
     if (argc != 3) {
         fprintf(stderr, "Uso: %s <tamaño_banda> <velocidad_ms>\n", argv[0]);
         fprintf(stderr, "Ejemplo: %s 50 100\n", argv[0]);
@@ -202,7 +221,6 @@ int main(int argc, char *argv[]) {
     int tamanio = atoi(argv[1]);
     int velocidad = atoi(argv[2]);
     
-    // Validar valores
     if (tamanio < 10 || tamanio > MAX_BANDA) {
         fprintf(stderr, "Error: tamaño debe estar entre 10 y %d\n", MAX_BANDA);
         exit(EXIT_FAILURE);
@@ -213,20 +231,15 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    // Configurar manejador de señales
     signal(SIGINT, cleanup_handler);
     signal(SIGTERM, cleanup_handler);
     
-    // Inicializar banda
     if (inicializar_banda(tamanio, velocidad) < 0) {
         fprintf(stderr, "Error al inicializar la banda\n");
         exit(EXIT_FAILURE);
     }
     
-    // Ejecutar loop principal
     ejecutar_banda();
-    
-    // Cleanup (aunque el handler se encarga)
     cleanup_handler(0);
     
     return 0;
