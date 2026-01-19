@@ -19,12 +19,12 @@ typedef struct {
     // Sincronización
     pthread_mutex_t mutex_caja;
     sem_t sem_retirar;  // Máximo 2 retiran
+    pthread_mutex_t mutex_captura;  // NUEVO: proteger buscar+retirar
     pthread_mutex_t mutex_brazos;
     
-    // Balance - IMPLEMENTACIÓN CORRECTA según PDF
-    int piezas_totales_dispensadas;  // Contador global de piezas dispensadas por todos
-    int ultimo_checkpoint;
+    // Balance - CORREGIDO según PDF
     pthread_mutex_t mutex_balance;
+    int ultimo_checkpoint;
     
     // Estadísticas
     int cajas_completadas;
@@ -93,15 +93,13 @@ int conectar_memoria_compartida() {
         return -1;
     }
     
-    // Conectar a estadísticas (opcional - los dispensadores las crean)
-    // Si no existen aún, no es error fatal
+    // Conectar a estadísticas
     shmid_stats = shmget(KEY_STATS, sizeof(EstadisticasGlobales), IPC_CREAT | 0666);
     if (shmid_stats >= 0) {
         stats = (EstadisticasGlobales *)shmat(shmid_stats, NULL, 0);
         if (stats == (EstadisticasGlobales *)-1) {
             stats = NULL;
         } else {
-            // Crear semáforo si no existe
             semid_stats = semget(KEY_SEM_STATS, 1, IPC_CREAT | 0666);
             if (semid_stats >= 0) {
                 sem_init_value(semid_stats, 0, 1);
@@ -130,12 +128,22 @@ int registrar_celda() {
     return 0;
 }
 
-int buscar_pieza_necesaria(int posicion, int* tipo_encontrado) {
+// CORREGIDO: Captura atómica de pieza (buscar + retirar en una operación)
+int capturar_pieza_atomica(int posicion, int* tipo_capturado) {
     if (posicion < 0 || posicion >= banda->tamanio) return -1;
     
-    // NO bloquear la banda aquí - solo leer
-    PosicionBanda* pos = &banda->posiciones[posicion];
+    *tipo_capturado = VACIO;
     
+    // Bloquear TODA la operación de captura
+    pthread_mutex_lock(&celda.mutex_captura);
+    
+    // Bloquear acceso a la banda
+    sem_wait_op(semid_banda, 0);
+    
+    PosicionBanda* pos = &banda->posiciones[posicion];
+    int resultado = -1;
+    
+    // Buscar pieza que necesitemos
     for (int i = 0; i < pos->count; i++) {
         int tipo = pos->piezas[i];
         if (tipo == VACIO) continue;
@@ -143,28 +151,24 @@ int buscar_pieza_necesaria(int posicion, int* tipo_encontrado) {
         int indice = tipo_a_indice(tipo);
         if (indice < 0) continue;
         
-        // Verificar si necesitamos esta pieza
+        // Verificar si necesitamos esta pieza (protegiendo lectura de caja)
         pthread_mutex_lock(&celda.mutex_caja);
         int necesitamos = (celda.caja_actual.piezas_actuales[indice] < 
                           celda.set_config.piezas_requeridas[indice]);
         pthread_mutex_unlock(&celda.mutex_caja);
         
         if (necesitamos) {
-            *tipo_encontrado = tipo;
-            return i;
+            // REMOVER INMEDIATAMENTE de la banda
+            if (remover_pieza_de_posicion(pos, tipo) == 0) {
+                *tipo_capturado = tipo;
+                resultado = 0;
+                break;  // Salir del loop - ya capturamos una pieza
+            }
         }
-        // Si NO necesitamos esta pieza, seguir buscando otra
     }
     
-    return -1; // No hay piezas que necesitemos
-}
-
-int retirar_pieza_banda(int posicion, int tipo) {
-    if (posicion < 0 || posicion >= banda->tamanio) return -1;
-    
-    sem_wait_op(semid_banda, 0);
-    int resultado = remover_pieza_de_posicion(&banda->posiciones[posicion], tipo);
     sem_signal_op(semid_banda, 0);
+    pthread_mutex_unlock(&celda.mutex_captura);
     
     return resultado;
 }
@@ -186,18 +190,22 @@ int caja_completa() {
     return 1;
 }
 
-// IMPLEMENTACIÓN CORRECTA DEL BALANCE según PDF
-// "Cada Y piezas dispensadas el brazo que haya seleccionado más piezas 
-//  suspende su operación por Δt2 segundos"
+// CORREGIDO: Balance según PDF - basado en piezas DISPENSADAS globalmente
 int verificar_y_aplicar_balance(int mi_id) {
+    if (stats == NULL || semid_stats < 0) return 0;
+    
     pthread_mutex_lock(&celda.mutex_balance);
     
-    int total_dispensadas = celda.piezas_totales_dispensadas;
+    // Leer contador GLOBAL de piezas dispensadas
+    sem_wait_op(semid_stats, 0);
+    int total_dispensadas = stats->total_piezas_dispensadas;
+    sem_signal_op(semid_stats, 0);
+    
     int checkpoint = celda.ultimo_checkpoint;
     
-    // Verificar si alcanzamos Y piezas desde el último checkpoint
-    if (total_dispensadas - checkpoint >= Y_TIPOS_PIEZAS) {
-        celda.ultimo_checkpoint = total_dispensadas;
+    // "Cada Y piezas dispensadas" - verificar si alcanzamos múltiplo de Y
+    if (total_dispensadas >= checkpoint + Y_TIPOS_PIEZAS) {
+        celda.ultimo_checkpoint = checkpoint + Y_TIPOS_PIEZAS;
         pthread_mutex_unlock(&celda.mutex_balance);
         
         // Determinar brazo con MÁS piezas procesadas
@@ -214,15 +222,15 @@ int verificar_y_aplicar_balance(int mi_id) {
         pthread_mutex_unlock(&celda.mutex_brazos);
         
         // Si YO soy el brazo más ocupado, suspenderme
-        if (brazo_max == mi_id) {
-            printf("[BRAZO %d] 💤 Suspendido por balance (%d piezas, máximo actual)\n", 
-                   mi_id, max_piezas);
+        if (brazo_max == mi_id && max_piezas > 0) {
+            printf("[BRAZO %d] 💤 Suspendido por balance (%d piezas procesadas, checkpoint: %d)\n", 
+                   mi_id, max_piezas, total_dispensadas);
             
             pthread_mutex_lock(&celda.mutex_brazos);
             celda.brazos[mi_id].suspendido = 1;
             pthread_mutex_unlock(&celda.mutex_brazos);
             
-            usleep(DELTA_T2);  // Suspender por Δt2 microsegundos
+            usleep(DELTA_T2);
             
             pthread_mutex_lock(&celda.mutex_brazos);
             celda.brazos[mi_id].suspendido = 0;
@@ -288,14 +296,10 @@ void validar_caja() {
     // Reiniciar caja
     memset(&celda.caja_actual, 0, sizeof(EstadoCaja));
     
-    // NUEVA LÓGICA: Esperar un momento para dar oportunidad a otras celdas
-    // Esto simula "esperar que las piezas den la vuelta"
-    printf("[CELDA %d] 🔄 Nueva caja iniciada - Esperando siguiente ciclo de piezas...\n", 
-           celda.id_celda);
+    printf("[CELDA %d] 🔄 Nueva caja iniciada\n", celda.id_celda);
     
-    // Esperar el equivalente a una vuelta completa de banda
-    // Esto permite que las piezas restantes se redistribuyan
-    usleep(500000); // 500ms de pausa entre cajas
+    // Pausa breve entre cajas para redistribución
+    usleep(500000); // 500ms
 }
 
 void* brazo_worker(void* arg) {
@@ -305,69 +309,50 @@ void* brazo_worker(void* arg) {
     printf("[BRAZO %d] Iniciado (Celda %d)\n", mi_id, celda.id_celda);
     
     while (celda.celda_activa && banda->activa > 0) {
-        // 1. Buscar pieza necesaria
         int tipo_pieza = VACIO;
-        int idx = buscar_pieza_necesaria(celda.posicion_banda, &tipo_pieza);
         
-        if (idx >= 0 && tipo_pieza != VACIO) {
-            // 2. Esperar permiso para retirar (máximo 2)
-            sem_wait(&celda.sem_retirar);
+        // 1. Esperar permiso para retirar (máximo 2 simultáneos)
+        sem_wait(&celda.sem_retirar);
+        
+        // 2. Captura ATÓMICA: buscar + retirar en una operación protegida
+        if (capturar_pieza_atomica(celda.posicion_banda, &tipo_pieza) == 0 && tipo_pieza != VACIO) {
+            // Pieza capturada exitosamente
+            usleep(TIEMPO_AGARRE);
+            sem_post(&celda.sem_retirar);
             
-            // 3. Verificar que aún necesitamos esta pieza
+            // 3. Depositar en caja (solo 1 a la vez)
             pthread_mutex_lock(&celda.mutex_caja);
+            
             int indice = tipo_a_indice(tipo_pieza);
-            int aun_necesitamos = (celda.caja_actual.piezas_actuales[indice] < 
-                                   celda.set_config.piezas_requeridas[indice]);
+            
+            // Verificar que aún necesitamos esta pieza
+            if (indice >= 0 && 
+                celda.caja_actual.piezas_actuales[indice] < celda.set_config.piezas_requeridas[indice]) {
+                
+                depositar_en_caja(tipo_pieza);
+                
+                // Actualizar contador del brazo
+                pthread_mutex_lock(&celda.mutex_brazos);
+                celda.brazos[mi_id].piezas_procesadas++;
+                pthread_mutex_unlock(&celda.mutex_brazos);
+                
+                usleep(TIEMPO_DEPOSITO);
+                
+                // 4. Verificar si caja completa
+                if (caja_completa()) {
+                    validar_caja();
+                }
+            }
+            
             pthread_mutex_unlock(&celda.mutex_caja);
             
-            if (!aun_necesitamos) {
-                sem_post(&celda.sem_retirar);
-                usleep(10000);
-                continue;
-            }
+            // 5. Verificar balance después de depositar
+            verificar_y_aplicar_balance(mi_id);
             
-            // 4. Retirar pieza
-            if (retirar_pieza_banda(celda.posicion_banda, tipo_pieza) == 0) {
-                usleep(TIEMPO_AGARRE);
-                sem_post(&celda.sem_retirar);
-                
-                // 5. Esperar para depositar (solo 1 a la vez)
-                pthread_mutex_lock(&celda.mutex_caja);
-                
-                // 6. Verificar una vez más antes de depositar
-                if (celda.caja_actual.piezas_actuales[indice] < 
-                    celda.set_config.piezas_requeridas[indice]) {
-                    
-                    depositar_en_caja(tipo_pieza);
-                    
-                    // Actualizar contador del brazo
-                    pthread_mutex_lock(&celda.mutex_brazos);
-                    celda.brazos[mi_id].piezas_procesadas++;
-                    pthread_mutex_unlock(&celda.mutex_brazos);
-                    
-                    // Actualizar contador global para balance
-                    pthread_mutex_lock(&celda.mutex_balance);
-                    celda.piezas_totales_dispensadas++;
-                    pthread_mutex_unlock(&celda.mutex_balance);
-                    
-                    usleep(TIEMPO_DEPOSITO);
-                    
-                    // 7. Verificar si caja completa
-                    if (caja_completa()) {
-                        validar_caja();
-                    }
-                }
-                
-                pthread_mutex_unlock(&celda.mutex_caja);
-                
-                // 8. Verificar balance después de depositar
-                verificar_y_aplicar_balance(mi_id);
-                
-            } else {
-                sem_post(&celda.sem_retirar);
-            }
         } else {
-            usleep(50000);
+            // No había pieza disponible
+            sem_post(&celda.sem_retirar);
+            usleep(50000); // Esperar un poco antes de reintentar
         }
     }
     
@@ -403,9 +388,9 @@ void inicializar_celda(int id, int posicion, int pzA, int pzB, int pzC, int pzD)
     pthread_mutex_init(&celda.mutex_caja, NULL);
     pthread_mutex_init(&celda.mutex_brazos, NULL);
     pthread_mutex_init(&celda.mutex_balance, NULL);
+    pthread_mutex_init(&celda.mutex_captura, NULL); // NUEVO
     sem_init(&celda.sem_retirar, 0, 2);
     
-    celda.piezas_totales_dispensadas = 0;
     celda.ultimo_checkpoint = 0;
 }
 
@@ -481,7 +466,7 @@ void ejecutar_celda() {
            celda.set_config.piezas_requeridas[1],
            celda.set_config.piezas_requeridas[2],
            celda.set_config.piezas_requeridas[3]);
-    printf("Restricciones: Máx 2 brazos retiran | 1 deposita | Balance cada %d piezas\n\n",
+    printf("Restricciones: Máx 2 brazos retiran | 1 deposita | Balance cada %d piezas dispensadas\n\n",
            Y_TIPOS_PIEZAS);
     
     for (int i = 0; i < BRAZOS_POR_CELDA; i++) {
@@ -547,6 +532,7 @@ int main(int argc, char *argv[]) {
     pthread_mutex_destroy(&celda.mutex_caja);
     pthread_mutex_destroy(&celda.mutex_brazos);
     pthread_mutex_destroy(&celda.mutex_balance);
+    pthread_mutex_destroy(&celda.mutex_captura);
     sem_destroy(&celda.sem_retirar);
     
     if (banda != NULL) shmdt(banda);

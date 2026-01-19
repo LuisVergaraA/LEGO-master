@@ -102,40 +102,48 @@ void conectar_estadisticas() {
     }
 }
 
-// Mover la banda un paso (shift circular REAL)
+// CORREGIDO: Mover la banda con mejor lógica circular
 void mover_banda() {
     sem_wait_op(semid_banda, 0);
     
-    // Guardar la última posición (en vez de tirarla al tacho)
-    PosicionBanda pieza_final = banda->posiciones[banda->tamanio - 1];
+    // Guardar la última posición
+    PosicionBanda ultimo_pos = banda->posiciones[banda->tamanio - 1];
     
     // Desplazar todas las posiciones un paso adelante
     for (int i = banda->tamanio - 1; i > 0; i--) {
         banda->posiciones[i] = banda->posiciones[i - 1];
     }
     
-    // BANDA CIRCULAR: Las piezas del final regresan a la posición 0
-    // Pero SOLO si no hay nuevas piezas siendo dispensadas
-    if (banda->posiciones[0].count == 0) {
-        // Posición 0 vacía, podemos poner las piezas que venían del final
-        banda->posiciones[0] = pieza_final;
-    } else {
-        // Ya hay piezas nuevas en pos 0, las del final van al tacho
-        if (pieza_final.count > 0 && stats != NULL) {
-            sem_wait_op(semid_stats, 0);
-            for (int i = 0; i < pieza_final.count; i++) {
-                int tipo = pieza_final.piezas[i];
-                if (tipo != VACIO) {
+    // BANDA CIRCULAR MEJORADA:
+    // Si posición 0 tiene espacio, agregar piezas del final
+    // Si no, esas piezas van al tacho
+    if (ultimo_pos.count > 0) {
+        PosicionBanda* pos0 = &banda->posiciones[0];
+        
+        // Intentar agregar cada pieza del final a la posición 0
+        for (int i = 0; i < ultimo_pos.count; i++) {
+            int tipo = ultimo_pos.piezas[i];
+            if (tipo == VACIO) continue;
+            
+            // Si hay espacio en pos 0, agregar pieza (circular)
+            if (agregar_pieza_a_posicion(pos0, tipo) < 0) {
+                // No hay espacio, va al tacho
+                if (stats != NULL && semid_stats >= 0) {
+                    sem_wait_op(semid_stats, 0);
                     int indice = tipo_a_indice(tipo);
                     if (indice >= 0 && indice < MAX_TIPOS_PIEZAS) {
                         stats->piezas_sobrantes[indice]++;
                         printf("  [TACHO] Pieza tipo %s (banda saturada)\n", 
                                nombre_pieza(tipo));
                     }
+                    sem_signal_op(semid_stats, 0);
                 }
             }
-            sem_signal_op(semid_stats, 0);
+            // Si se agregó, la pieza continúa circulando
         }
+    } else {
+        // Posición vacía, simplemente continuar
+        limpiar_posicion(&banda->posiciones[0]);
     }
     
     banda->cabeza = 0;
@@ -150,6 +158,13 @@ void mostrar_estado() {
     printf("Tamaño: %d pasos | Velocidad: %d ms/paso | Estado: %s\n", 
            banda->tamanio, banda->velocidad_ms,
            banda->activa > 0 ? "ACTIVA" : "DETENIDA");
+    
+    // Contar piezas totales en banda
+    int total_en_banda = 0;
+    for (int i = 0; i < banda->tamanio; i++) {
+        total_en_banda += banda->posiciones[i].count;
+    }
+    printf("Piezas en banda: %d\n", total_en_banda);
     
     // Mostrar primeras 20 posiciones
     printf("Posiciones [0-19]: ");
@@ -189,6 +204,7 @@ void ejecutar_banda() {
     print_timestamp("Banda transportadora iniciada\n");
     printf("Tamaño: %d pasos, Velocidad: %d ms\n", 
            banda->tamanio, banda->velocidad_ms);
+    printf("Modo: CIRCULAR (piezas regresan al inicio si no son capturadas)\n");
     printf("Esperando dispensadores y celdas...\n");
     printf("Presione Ctrl+C para detener.\n\n");
     

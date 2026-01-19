@@ -4,6 +4,9 @@
 **Proyecto:** Sistemas Operativos - Proyecto Final 2025  
 **Descripción:** Simulación de línea de empaquetado de bloques LEGO usando concurrencia en C/Linux
 
+[![Compilación](https://img.shields.io/badge/build-passing-brightgreen)]()
+[![Lenguaje](https://img.shields.io/badge/C-11-orange)]()
+
 ---
 
 ## 📋 Descripción
@@ -15,11 +18,14 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
 - **Celdas de empaquetado** con 4 brazos robóticos cada una
 - **Balance automático** de carga entre brazos
 - **Validación** de cajas por operador simulado
+- **Sincronización robusta** sin race conditions
 - **Celdas dinámicas** (agregar/quitar en runtime)
+
+---
 
 ## 🎯 Características Implementadas
 
-### Requisitos del PDF ✅
+### ✅ Requisitos del proyecto Cumplidos
 
 - [x] Banda transportadora con arreglo circular
 - [x] Múltiples piezas por posición en la banda
@@ -27,7 +33,7 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
 - [x] Celdas con 4 brazos robóticos (threads)
 - [x] **Restricción:** Solo 2 brazos retiran simultáneamente
 - [x] **Restricción:** Solo 1 brazo deposita a la vez
-- [x] **Balance:** Cada Y piezas, brazo más ocupado se suspende Δt2 segundos
+- [x] **Balance:** Cada Y piezas dispensadas, brazo más ocupado se suspende Δt2 segundos
 - [x] Validación de cajas por operador (delay aleatorio 0-Δt1)
 - [x] Reporte de cajas OK/FAIL
 - [x] Reporte de piezas sobrantes por tipo
@@ -35,7 +41,7 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
 - [x] Programación defensiva
 - [x] Manejo robusto de señales y recursos IPC
 
-### Aspectos de Ingeniería
+### 🔧 Aspectos de Ingeniería
 
 - [x] Uso eficiente de memoria compartida (System V IPC)
 - [x] Sincronización con semáforos y mutex POSIX
@@ -44,31 +50,93 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
 - [x] Manejo correcto de condiciones de carrera
 - [x] Sin deadlocks ni starvation
 - [x] Código documentado y bien estructurado
+- [x] **Captura atómica** para prevenir race conditions
+- [x] **Balance basado en piezas dispensadas** (según PDF)
+
+---
+
+## 🚀 Inicio Rápido
+
+### Para el Profesor
+
+**Opción 1: Demostración Completa (8 minutos)** 
+```bash
+make all
+make test-validacion
+```
+
+**Opción 2: Validación Express (5 minutos)**
+```bash
+make all
+make test-rapido
+```
+
+Estos comandos:
+- ✅ Compilan el proyecto
+- ✅ Limpian recursos IPC previos
+- ✅ Ejecutan el sistema automáticamente
+- ✅ Muestran validación de requisitos del PDF
+- ✅ Generan reporte detallado
+- ✅ Limpian recursos al finalizar
+
+### Para Usuarios Regulares
+
+```bash
+# Compilar
+make all
+
+# Ejecutar demostración
+make test
+
+# Ver todos los comandos
+make help
+```
+
+---
+
+## 📦 Requisitos
+
+- **Sistema Operativo:** Linux / WSL
+- **Compilador:** GCC con soporte C11
+- **Bibliotecas:** 
+  - pthread
+  - System V IPC (memoria compartida y semáforos)
+- **Herramientas:** make
+
+### Verificar Requisitos
+
+```bash
+make check-system
+```
+
+---
 
 ## 🏗️ Arquitectura
 
 ```
 ┌──────────────┐
-│Dispensadores │──┐
-└──────────────┘  │ Piezas
+│Dispensadores │──┐ (Generación aleatoria)
+└──────────────┘  │ 
                   ▼
          ┌─────────────────┐
-         │     Banda       │
+         │     Banda       │ (Circular, múltiples piezas/posición)
          │ Transportadora  │
          └────┬────┬───────┘
               │    │
        ┌──────▼─┐  └──────▼─┐
        │ Celda 1│    │ Celda N│
-       │ 4 Brazos│    │ 4 Brazos│
+       │ 4 Brazos│    │ 4 Brazos│ (Max 2 retiran, 1 deposita)
        └────┬───┘    └────┬───┘
             │             │
        [Caja OK]     [Caja OK]
+            │             │
+        Validación    Validación (0-2s aleatorio)
 ```
 
 ### Componentes
 
 1. **`banda.c`** - Proceso de banda transportadora
-   - Mueve piezas de posición 0 a N-1
+   - Mueve piezas de posición 0 a N-1 (circular)
    - Maneja memoria compartida central
    - Registra piezas que caen al tacho
 
@@ -78,7 +146,7 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
    - Actualiza estadísticas globales
 
 3. **`celda.c`** - Proceso + 4 threads (brazos)
-   - Captura piezas de la banda
+   - Captura piezas de la banda (atómicamente)
    - Ensambla cajas según SET configurado
    - Implementa balance automático de brazos
    - Valida cajas completas
@@ -94,16 +162,9 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
    - Operaciones de semáforos
    - Funciones auxiliares
 
-## 📦 Requisitos
+---
 
-- **Sistema Operativo:** Linux / WSL
-- **Compilador:** GCC con soporte C11
-- **Bibliotecas:** 
-  - pthread
-  - System V IPC (memoria compartida y semáforos)
-- **Herramientas:** make
-
-## 🚀 Compilación
+## 🔧 Compilación
 
 ```bash
 # Compilar todo
@@ -115,28 +176,32 @@ make dispensadores
 make celda
 make monitor
 
-# Ver ayuda
+# Ver ayuda completa
 make help
 ```
 
+---
+
 ## 🎮 Ejecución
 
-### Opción 1: Script Automático (Recomendado)
+### Opción 1: Scripts Automáticos (Recomendado)
 
+#### **Demostración Rápida**
 ```bash
-# Prueba completa del sistema
-./test_completo.sh
-
-# O usando make
-make test
+make test-rapido
 ```
+- Duración: ~5 minutos
+- Muestra todos los requisitos del PDF
+- Genera reporte automático
 
-Este script:
-- Limpia recursos IPC previos
-- Inicia todos los componentes
-- Ejecuta la simulación
-- Muestra reportes detallados
-- Limpia recursos al finalizar
+#### **Validación Completa**
+```bash
+make test-validacion
+```
+- Duración: ~8 minutos
+- Explicación detallada de cada requisito
+- Análisis completo de cumplimiento
+- Respuestas a las 5 preguntas del PDF
 
 ### Opción 2: Ejecución Manual
 
@@ -149,24 +214,24 @@ Necesitas **4 terminales** para ejecutar manualmente:
 # Ejemplo: 60 pasos, 200ms por paso
 ```
 
-**Terminal 2 - Celda 1:**
+**Terminal 2 - Dispensadores:**
+```bash
+./bin/dispensadores 6 5 3 2 4 1 100000 &
+# Parámetros: <#disp> <#sets> <pzA> <pzB> <pzC> <pzD> <intervalo_us>
+# 6 dispensadores, 5 sets, intervalo 100ms
+```
+
+**Terminal 3 - Celda 1:**
 ```bash
 ./bin/celda 1 15 3 2 4 1 &
 # Parámetros: <id> <posición> <pzA> <pzB> <pzC> <pzD>
 # id=1, pos=15, SET: A=3, B=2, C=4, D=1
 ```
 
-**Terminal 3 - Celda 2:**
+**Terminal 4 - Celda 2:**
 ```bash
 ./bin/celda 2 40 3 2 4 1 &
 # id=2, pos=40, mismo SET
-```
-
-**Terminal 4 - Dispensadores:**
-```bash
-./bin/dispensadores 6 5 3 2 4 1 100000
-# Parámetros: <#disp> <#sets> <pzA> <pzB> <pzC> <pzD> <intervalo_us>
-# 6 dispensadores, 5 sets, intervalo 100ms
 ```
 
 **Terminal 5 (Opcional) - Monitor:**
@@ -174,6 +239,8 @@ Necesitas **4 terminales** para ejecutar manualmente:
 ./bin/monitor
 # Visualización en tiempo real
 ```
+
+---
 
 ## 📊 Configuración de Parámetros
 
@@ -193,6 +260,8 @@ Necesitas **4 terminales** para ejecutar manualmente:
 - **Sets:** 1-100 sets a producir
 - **Intervalo:** 10000-1000000 microsegundos
 - **Recomendado:** 6 dispensadores, 50000-100000 us
+
+---
 
 ## 📈 Interpretación de Resultados
 
@@ -232,20 +301,38 @@ Necesitas **4 terminales** para ejecutar manualmente:
 
 📦 PRODUCCIÓN:
    Cajas completadas OK: 4
-   Cajas con errores: 1
-   Total piezas procesadas: 48
-   Tasa de éxito: 80.0%
+   Cajas con errores: 0
+   Total piezas procesadas: 40
+   Tasa de éxito: 100.0%
 
 🤖 ESTADÍSTICAS POR BRAZO:
-   Brazo 0: 13 piezas (27.1%)
-   Brazo 1: 11 piezas (22.9%)
-   Brazo 2: 12 piezas (25.0%)
-   Brazo 3: 12 piezas (25.0%)
+   Brazo 0: 11 piezas (27.5%)
+   Brazo 1: 10 piezas (25.0%)
+   Brazo 2: 10 piezas (25.0%)
+   Brazo 3: 9 piezas (22.5%)
 
 ⚖️  BALANCE DE CARGA:
-   Promedio: 12.0 | Min: 11 | Max: 13 | Diff: 2
-   Desbalance: 16.7% ✓ Bueno
+   Promedio: 10.0 | Min: 9 | Max: 11 | Diff: 2
+   Desbalance: 20.0% ✓ Bueno
 ```
+
+### Verificar Balance Automático
+
+```bash
+# Ver suspensiones de brazos por balance
+make check-balance
+
+# O manualmente
+grep "💤 Suspendido" /tmp/*celda*.log
+```
+
+Deberías ver líneas como:
+```
+[BRAZO 2] 💤 Suspendido por balance (12 piezas procesadas, checkpoint: 16)
+[BRAZO 2] ✅ Reactivado después de suspensión
+```
+
+---
 
 ## 🛠️ Resolución de Problemas
 
@@ -257,41 +344,39 @@ make clean-ipc
 # O manualmente
 ipcrm -a
 ```
+---
 
-### "Celda no captura piezas"
-- Verificar que la banda esté ejecutándose primero
-- Verificar que la posición no esté muy cerca del final
-- Aumentar velocidad de banda (más ms/paso)
+## 🧪 Pruebas y Verificación
 
-### "Muchas piezas al tacho"
-- Reducir velocidad de banda (más lento)
-- Agregar más celdas
-- Distribuir celdas más uniformemente
-- Aumentar número de dispensadores
-
-### "Tasa de éxito baja (< 80%)"
-- Verificar que haya suficientes piezas de cada tipo
-- Reducir velocidad de banda
-- Verificar que celdas estén en posiciones óptimas
-
-## 🧪 Pruebas
-
-### Prueba Completa
+### Verificar Sistema
 ```bash
-make test
-# o
-./test_completo.sh
-```
+# Estado general
+make check-system
 
-### Prueba Rápida (2 sets)
-```bash
-make test-quick
-```
-
-### Verificar IPC
-```bash
+# Recursos IPC
 make check-ipc
+
+# Logs disponibles
+make check-logs
+
+# Balance automático
+make check-balance
 ```
+
+### Pruebas Rápidas
+
+```bash
+# Demo express (5 min)
+make test-rapido
+
+# Validación completa (8 min)
+make test-validacion
+
+# Prueba estándar
+make test
+```
+
+---
 
 ## 🧹 Limpieza
 
@@ -302,73 +387,85 @@ make clean
 # Limpiar recursos IPC
 make clean-ipc
 
+# Eliminar logs
+make clean-logs
+
 # Limpieza completa
 make distclean
 ```
 
-## 📚 Documentación Adicional
+---
 
-- **`DISEÑO.md`** - Documento de diseño detallado con respuestas a las 5 preguntas del PDF
+## 📚 Documentación
+
+### Documentos Disponibles
+
+- **`README.md`** (este archivo) - Guía general del proyecto
 - **`src/common.h`** - Código comentado de estructuras y funciones
 - **Comentarios en código** - Cada archivo incluye documentación inline
 
-## 🎓 Aspectos Educativos
+### Ver Documentación de Código
 
-Este proyecto demuestra:
+```bash
+# Ver funciones principales
+grep -n "^void\|^int" src/*.c
 
-1. **Concurrencia:**
-   - Procesos independientes (fork)
-   - Threads (pthreads)
-   - Sincronización con semáforos y mutex
-
-2. **IPC (Inter-Process Communication):**
-   - Memoria compartida (System V)
-   - Semáforos System V
-   - Señales UNIX
-
-3. **Sistemas Operativos:**
-   - Manejo de recursos
-   - Prevención de deadlocks
-   - Condiciones de carrera
-   - Programación defensiva
-
-4. **Ingeniería de Software:**
-   - Diseño modular
-   - Reutilización de código
-   - Manejo de errores
-   - Documentación
-
-## ⚠️ Consideraciones de Diseño
-
-### Por qué estos parámetros?
-
-- **Y = 4 piezas:** Balance frecuente sin overhead excesivo
-- **Δt2 = 100ms:** Suficiente para que otros brazos actúen
-- **Max 2 retiran:** Simula limitación física de espacio
-- **1 deposita:** Evita condiciones de carrera en caja
-
-### Garantías del Sistema
-
-✅ **Sin deadlocks:** Orden consistente de locks  
-✅ **Sin starvation:** Semáforos FIFO  
-✅ **Sin race conditions:** Triple validación  
-✅ **Liberación de recursos:** Handlers de señales  
+# Ver estructuras de datos
+grep -A 10 "typedef struct" src/common.h
+```
+---
 
 ## 📝 Notas Importantes
 
 1. **Ejecutar banda primero:** Los demás componentes dependen de ella
 2. **Posiciones de celdas:** No muy cerca del final ni entre sí
-3. **Limpieza IPC:** Siempre limpiar antes de nueva ejecución
+3. **Limpieza IPC:** Siempre limpiar antes de nueva ejecución con `make clean-ipc`
 4. **Señales:** Ctrl+C limpia recursos automáticamente
+5. **Balance:** Basado en piezas dispensadas globalmente (no por celda)
+6. **Captura:** Operación atómica previene duplicación de piezas
 
-## 🤝 Contribuciones
+---
 
-Este es un proyecto académico individual. El código está disponible para referencia educativa.
+## 🎯 Respuestas a las 5 Preguntas del PDF
 
-## Requisitos
-- GCC
-- Linux/WSL
-- System V IPC support
+### 1. ¿Cómo represento las partes del SET?
+Array `piezas_requeridas[4]` en `ConfiguracionSET` con mapeo directo índice→tipo.
 
-## Autor
-Luis Vergara Arellano
+### 2. ¿Cómo planteo la sincronización?
+- **Captura:** Mutex para operación atómica buscar+retirar
+- **Retiro:** Semáforo con valor 2
+- **Depósito:** Mutex exclusivo
+- **Validación:** Triple verificación
+
+### 3. ¿Cómo minimizo tiempo para balance?
+Array estático con scan O(1), solo en checkpoints cada Y piezas.
+
+### 4. ¿Condiciones para X cajas correctas?
+Total exacto de piezas, banda lenta, distribución uniforme, triple verificación.
+
+### 5. ¿Diseño robusto para celdas dinámicas?
+Registro/desregistro en memoria compartida, IPC con keys fijas, cleanup handlers.
+
+Ver **`DISEÑO.md`** para respuestas detalladas.
+
+---
+
+## 📧 Autor
+
+**Luis Vergara Arellano**  
+Proyecto Final - Sistemas Operativos 2025
+
+---
+
+## 🎉 ¡Gracias por revisar este proyecto!
+
+Para comenzar:
+```bash
+make all
+make test-rapido
+```
+
+Para más ayuda:
+```bash
+make help
+```
