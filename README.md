@@ -25,22 +25,6 @@ Sistema de simulación que implementa una línea de empaquetado automatizada con
 
 ## 🎯 Características Implementadas
 
-### ✅ Requisitos del proyecto Cumplidos
-
-- [x] Banda transportadora con arreglo circular
-- [x] Múltiples piezas por posición en la banda
-- [x] Dispensadores con generación aleatoria
-- [x] Celdas con 4 brazos robóticos (threads)
-- [x] **Restricción:** Solo 2 brazos retiran simultáneamente
-- [x] **Restricción:** Solo 1 brazo deposita a la vez
-- [x] **Balance:** Cada Y piezas dispensadas, brazo más ocupado se suspende Δt2 segundos
-- [x] Validación de cajas por operador (delay aleatorio 0-Δt1)
-- [x] Reporte de cajas OK/FAIL
-- [x] Reporte de piezas sobrantes por tipo
-- [x] Celdas dinámicas (agregar/quitar en runtime)
-- [x] Programación defensiva
-- [x] Manejo robusto de señales y recursos IPC
-
 ### 🔧 Aspectos de Ingeniería
 
 - [x] Uso eficiente de memoria compartida (System V IPC)
@@ -132,35 +116,6 @@ make check-system
             │             │
         Validación    Validación (0-2s aleatorio)
 ```
-
-### Componentes
-
-1. **`banda.c`** - Proceso de banda transportadora
-   - Mueve piezas de posición 0 a N-1 (circular)
-   - Maneja memoria compartida central
-   - Registra piezas que caen al tacho
-
-2. **`dispensadores.c`** - Proceso generador de piezas
-   - Dispensa piezas aleatorias en posición 0
-   - Controla cantidad total de piezas
-   - Actualiza estadísticas globales
-
-3. **`celda.c`** - Proceso + 4 threads (brazos)
-   - Captura piezas de la banda (atómicamente)
-   - Ensambla cajas según SET configurado
-   - Implementa balance automático de brazos
-   - Valida cajas completas
-
-4. **`monitor.c`** - Visualización en tiempo real (opcional)
-   - Muestra estado de la banda
-   - Estadísticas del sistema
-   - Colores ANSI para mejor visualización
-
-5. **`common.h`** - Estructuras y funciones compartidas
-   - Definiciones de constantes
-   - Estructuras de datos
-   - Operaciones de semáforos
-   - Funciones auxiliares
 
 ---
 
