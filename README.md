@@ -381,46 +381,7 @@ grep -A 10 "typedef struct" src/common.h
 
 ---
 
-## 🎯 Respuestas a las 5 Preguntas del PDF
-
-### 1. ¿Cómo represento las partes del SET?
-Array `piezas_requeridas[4]` en `ConfiguracionSET` con mapeo directo índice→tipo.
-
-### 2. ¿Cómo planteo la sincronización?
-- **Captura:** Mutex para operación atómica buscar+retirar
-- **Retiro:** Semáforo con valor 2
-- **Depósito:** Mutex exclusivo
-- **Validación:** Triple verificación
-
-### 3. ¿Cómo minimizo tiempo para balance?
-Array estático con scan O(1), solo en checkpoints cada Y piezas.
-
-### 4. ¿Condiciones para X cajas correctas?
-Total exacto de piezas, banda lenta, distribución uniforme, triple verificación.
-
-### 5. ¿Diseño robusto para celdas dinámicas?
-Registro/desregistro en memoria compartida, IPC con keys fijas, cleanup handlers.
-
-Ver **`DISEÑO.md`** para respuestas detalladas.
-
----
-
 ## 📧 Autor
 
 **Luis Vergara Arellano**  
 Proyecto Final - Sistemas Operativos 2025
-
----
-
-## 🎉 ¡Gracias por revisar este proyecto!
-
-Para comenzar:
-```bash
-make all
-make test-rapido
-```
-
-Para más ayuda:
-```bash
-make help
-```
